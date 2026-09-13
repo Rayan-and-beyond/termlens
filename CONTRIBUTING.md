@@ -10,6 +10,17 @@ change from your editor into `main`.
 > [launchbound](https://github.com/vyncint/launchbound),
 > [reconverge](https://github.com/vyncint/reconverge). Learn it once.
 
+## Where to start
+
+- New here? The [`good first issue`](https://github.com/vyncint/termlens/labels/good%20first%20issue)
+  label collects work sized for a first patch: one file, no architecture
+  decisions.
+- Open a draft PR early — it is the cheapest way to confirm direction before
+  you write much.
+- Two things trip people up here: commits need `git commit -s` for the
+  [DCO](#5-developer-certificate-of-origin-dco), and snapshot updates are
+  reviewed with `cargo insta review`, never blind-accepted.
+
 ## 1. Dev setup
 
 ```sh
