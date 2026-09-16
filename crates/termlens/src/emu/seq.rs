@@ -1218,6 +1218,9 @@ impl SeqTracker {
             (0, b'n') if single(5) => Some(Query::OperatingStatus),
             (0, b'c') if params_empty || single(0) => Some(Query::PrimaryDa),
             (b'>', b'c') if params_empty || single(0) => Some(Query::SecondaryDa),
+            (b'>', b'q') if params_empty || single(0) => {
+                Some(Query::Unanswerable(self.seq_printable()))
+            }
             (0, b't') if single(18) => Some(Query::TextAreaSize),
             // Pixel geometry. Arithmetic, not rendering: answering claims
             // nothing the emulator cannot do, and DA1 goes on declining
@@ -2903,6 +2906,10 @@ mod tests {
         assert_eq!(q, vec![Query::Unanswerable("^[P$qm^[\\".into())]);
         let q = queries_of(b"\x1b[=c"); // DA3
         assert_eq!(q, vec![Query::Unanswerable("^[[=c".into())]);
+        let q = queries_of(b"\x1b[>q"); // XTVERSION
+        assert_eq!(q, vec![Query::Unanswerable("^[[>q".into())]);
+        let q = queries_of(b"\x1b[>0q");
+        assert_eq!(q, vec![Query::Unanswerable("^[[>0q".into())]);
         let q = queries_of(b"\x1b]12;?\x07"); // cursor color
         assert_eq!(q, vec![Query::Unanswerable("^[]12;?^G".into())]);
         // Any CSI …n is a DSR-family status request by definition.

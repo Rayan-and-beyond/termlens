@@ -17,6 +17,10 @@ reads that marker.
 
 ## [Unreleased]
 
+### Fixed
+
+- XTVERSION probes are named in unanswered-query timeout diagnostics (#403).
+
 ## [0.11.1] - 2026-09-16
 
 ### Added
