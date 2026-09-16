@@ -79,6 +79,14 @@ impl Unhandled {
 /// `params` as they were written: `;` between parameters, `:` between the
 /// sub-parameters of one.
 fn params_text(params: &[&[u16]]) -> String {
+    // vte exposes an omitted parameter as one zeroed accumulator. Omitted
+    // and explicit zero have the same default meaning, so keep the recorded
+    // shape parameterless instead of inventing a `0` the application did
+    // not write.
+    if params.len() == 1 && params[0].len() == 1 && params[0][0] == 0 {
+        return String::new();
+    }
+
     params
         .iter()
         .map(|p| p.iter().map(u16::to_string).collect::<Vec<_>>().join(":"))
@@ -249,6 +257,14 @@ mod tests {
         assert_eq!(
             shapes(b"\x1b[20h\x1b[20h\x1bD\x1b]9;hi\x07\x05\x1b[?69h"),
             ["^[[20h", "^[D", "^[]9;hi", "^E", "^[[?69h"]
+        );
+    }
+
+    #[test]
+    fn parameterless_sequences_are_recorded_without_a_synthetic_zero() {
+        assert_eq!(
+            shapes(b"\x1b[s\x1b[>q\x1b[?h\x1b[20h\x1b[?69h\x1b[58;5;1m"),
+            ["^[[s", "^[[>q", "^[[?h", "^[[20h", "^[[?69h", "^[[58;5;1m",]
         );
     }
 

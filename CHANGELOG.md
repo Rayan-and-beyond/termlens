@@ -17,6 +17,11 @@ reads that marker.
 
 ## [Unreleased]
 
+### Fixed
+
+- `Screen::unsupported()` preserves parameterless CSI sequences in their written
+  form instead of inserting a synthetic `0` parameter (#394).
+
 ## [0.11.1] - 2026-09-16
 
 ### Added
