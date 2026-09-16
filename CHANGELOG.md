@@ -17,6 +17,10 @@ reads that marker.
 
 ## [Unreleased]
 
+### Fixed
+
+- Kitty graphics decoding now rejects declared widths or heights of zero as malformed instead of returning an empty bitmap (#404).
+
 ## [0.11.1] - 2026-09-16
 
 ### Added

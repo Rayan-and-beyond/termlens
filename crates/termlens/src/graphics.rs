@@ -345,6 +345,11 @@ impl GraphicsPayload {
         let (width, height) = self.size.ok_or(DecodeError::Malformed(
             "a kitty transmission without s= and v=",
         ))?;
+        if width == 0 || height == 0 {
+            return Err(DecodeError::Malformed(
+                "a kitty transmission declaring a zero dimension",
+            ));
+        }
         // The declared size is computed *before* the payload is touched,
         // because it is what bounds the inflate below. The other way round —
         // as this was — leaves `decompress_to_vec_zlib` free to allocate
@@ -1204,6 +1209,27 @@ mod tests {
     ///
     /// One table on purpose, so a sixth path cannot appear without a line
     /// here saying what bounds it.
+    #[cfg(feature = "decode")]
+    #[test]
+    fn kitty_zero_dimensions_are_malformed() {
+        for control in [
+            b"a=T,f=32,s=0,v=0".as_slice(),
+            b"a=T,f=32,s=8,v=0".as_slice(),
+            b"a=T,f=32,s=0,v=8".as_slice(),
+        ] {
+            assert!(
+                matches!(
+                    kitty_payload(control, b"").decode(),
+                    Err(DecodeError::Malformed(
+                        "a kitty transmission declaring a zero dimension"
+                    ))
+                ),
+                "a kitty transmission with a zero dimension was accepted: {}",
+                String::from_utf8_lossy(control)
+            );
+        }
+    }
+
     #[cfg(feature = "decode")]
     #[test]
     fn a_payload_cannot_choose_how_much_memory_a_decode_spends() {
