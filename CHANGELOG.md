@@ -19,7 +19,12 @@ reads that marker.
 
 ### Fixed
 
-- Kitty graphics decoding now rejects declared widths or heights of zero as malformed instead of returning an empty bitmap (#404).
+- A kitty transmission declaring a width or a height of zero is refused as
+  malformed instead of decoding to an empty bitmap (#404). `s=` and `v=`
+  are the pixel dimensions of a picture, so a zero contradicts the
+  protocol; returning `Ok` of a 0x0 bitmap made `decode()?` succeed and
+  the assertion after it silently see nothing. Sixel already declined
+  this by falling back to the painted extent.
 
 ## [0.11.1] - 2026-09-16
 
