@@ -17,6 +17,10 @@ reads that marker.
 
 ## [Unreleased]
 
+### Fixed
+
+- `Screen::unsupported()` now reports unimplemented xterm title-stack operations instead of silently treating every `CSI … t` sequence as handled (#393).
+
 ## [0.11.1] - 2026-09-16
 
 ### Added

@@ -166,7 +166,8 @@ impl Callbacks for Unhandled {
         let handled = match (prefix, intermediate, c) {
             // Tab stops, insert mode, the queries the responder answers or
             // names, and the window reports it answers or names.
-            (None, None, 'g' | 'I' | 'Z' | 'c' | 'n' | 't') => true,
+            (None, None, 'g' | 'I' | 'Z' | 'c' | 'n') => true,
+            (None, None, 't') => matches!(first, Some(14 | 16 | 18)),
             (None, None, 'h' | 'l') => first == Some(4),
             // DECSTR, DECSCUSR, DECRQM and the mode reports.
             (None, Some(b'!'), 'p') | (None, Some(b' '), 'q') => true,
@@ -250,6 +251,12 @@ mod tests {
             shapes(b"\x1b[20h\x1b[20h\x1bD\x1b]9;hi\x07\x05\x1b[?69h"),
             ["^[[20h", "^[D", "^[]9;hi", "^E", "^[[?69h"]
         );
+    }
+
+    #[test]
+    fn title_stack_operations_are_reported_but_size_queries_are_not() {
+        assert_eq!(shapes(b"\x1b[22;0t\x1b[23;0t"), ["^[[22;0t", "^[[23;0t"]);
+        assert!(shapes(b"\x1b[14t\x1b[16t\x1b[18t").is_empty());
     }
 
     #[test]
