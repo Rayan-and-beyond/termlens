@@ -17,6 +17,10 @@ reads that marker.
 
 ## [Unreleased]
 
+### Fixed
+
+- UTF-8 mouse encoding can report coordinates past the legacy 222-cell limit (#395).
+
 ## [0.11.1] - 2026-09-16
 
 ### Added
