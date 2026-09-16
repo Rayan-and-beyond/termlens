@@ -17,6 +17,10 @@ reads that marker.
 
 ## [Unreleased]
 
+### Fixed
+
+- A cursor pending wrap at the right margin is reported on the last grid cell, keeping saved screens parseable and cursor-position replies within the terminal width (#401).
+
 ## [0.11.1] - 2026-09-16
 
 ### Added

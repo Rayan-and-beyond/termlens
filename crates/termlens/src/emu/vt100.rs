@@ -162,9 +162,17 @@ impl Vt100Emulator {
     /// whatever came next. `HT` it does act on, moving by its own fixed
     /// eight — which the `CHA` below then overrides, since `HT` draws
     /// nothing and only moves the cursor.
+    /// Cursor position as a real grid cell. vt100 exposes pending wrap as
+    /// `col == cols`; terminals keep the cursor on the last cell instead.
+    fn cursor_position(&self) -> (u16, u16) {
+        let screen = self.parser.screen();
+        let (row, col) = screen.cursor_position();
+        (row, col.min(screen.size().1.saturating_sub(1)))
+    }
+
     fn apply_tabs(&mut self, op: TabOp, before: &[u8], last: &[u8]) {
         self.feed_staged(before);
-        let col = self.parser.screen().cursor_position().1;
+        let col = self.cursor_position().1;
         let target = self.tracker.tab_op(op, col);
         self.feed_staged(last);
         if let Some(target) = target {
@@ -183,7 +191,7 @@ impl Vt100Emulator {
     /// payload, and the one an application gets wrong when a picture drifts
     /// out from under its own labels.
     fn record_graphics(&mut self, mut payload: GraphicsPayload) {
-        payload.place(self.parser.screen().cursor_position());
+        payload.place(self.cursor_position());
         let kept = payload.data().map_or(0, <[u8]>::len);
         let log = Arc::make_mut(&mut self.graphics);
         log.push(payload);
@@ -434,7 +442,7 @@ impl Emulator for Vt100Emulator {
                 cells.push(converted);
             }
         }
-        let (cursor_row, cursor_col) = screen.cursor_position();
+        let (cursor_row, cursor_col) = self.cursor_position();
         let state = TermState {
             title: self.tracker.title(),
             alternate_screen: screen.alternate_screen(),
@@ -926,6 +934,21 @@ mod tests {
     fn hidden_cursor_is_reported() {
         let emu = emu_with(b"\x1b[?25l");
         assert_eq!(emu.snapshot().cursor(), (0, 0, false));
+    }
+
+    #[test]
+    fn a_pending_wrap_cursor_stays_inside_the_grid_and_round_trips() {
+        let mut emu = Vt100Emulator::new(3, 10, 0, crate::graphics::DEFAULT_CAPTURE, false);
+        feed_all(&mut emu, b"0123456789");
+        let screen = emu.snapshot();
+        assert_eq!(screen.cursor(), (0, 9, true));
+        let saved = screen.to_string();
+        assert_eq!(
+            Screen::parse(&saved)
+                .expect("saved screen round-trips")
+                .to_string(),
+            saved
+        );
     }
 
     #[test]
