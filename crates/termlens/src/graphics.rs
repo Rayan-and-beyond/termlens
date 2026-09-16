@@ -345,6 +345,11 @@ impl GraphicsPayload {
         let (width, height) = self.size.ok_or(DecodeError::Malformed(
             "a kitty transmission without s= and v=",
         ))?;
+        if width == 0 || height == 0 {
+            return Err(DecodeError::Malformed(
+                "a kitty transmission declaring a zero dimension",
+            ));
+        }
         // The declared size is computed *before* the payload is touched,
         // because it is what bounds the inflate below. The other way round —
         // as this was — leaves `decompress_to_vec_zlib` free to allocate
@@ -1285,6 +1290,32 @@ mod tests {
         let bitmap = payload.decode().expect("decodes");
         assert_eq!((bitmap.width(), bitmap.height()), (16, 16));
         assert_eq!(bitmap.pixel(15, 15), Some([0x40, 0x40, 0x40, 0x40]));
+    }
+
+    /// A declared dimension of zero contradicts the protocol — `s=` and `v=`
+    /// are the pixel dimensions of a picture — so it is a refusal with a
+    /// reason, never an `Ok` of an empty bitmap that reads as "the image was
+    /// empty" (#404). Sixel already declines this by falling back to the
+    /// painted extent.
+    #[cfg(feature = "decode")]
+    #[test]
+    fn kitty_zero_dimensions_are_malformed() {
+        for control in [
+            b"a=T,f=32,s=0,v=0".as_slice(),
+            b"a=T,f=32,s=8,v=0".as_slice(),
+            b"a=T,f=32,s=0,v=8".as_slice(),
+        ] {
+            assert!(
+                matches!(
+                    kitty_payload(control, b"").decode(),
+                    Err(DecodeError::Malformed(
+                        "a kitty transmission declaring a zero dimension"
+                    ))
+                ),
+                "a kitty transmission with a zero dimension was accepted: {}",
+                String::from_utf8_lossy(control)
+            );
+        }
     }
 
     #[cfg(feature = "decode")]
