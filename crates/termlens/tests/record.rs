@@ -139,6 +139,59 @@ fn the_asciicast_is_a_v2_header_and_one_full_repaint_per_frame() -> termlens::Re
     Ok(())
 }
 
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "ConPTY closes a DEC 2026 bracket before the content it wrapped, so a recorded frame never holds what was drawn (#149)"
+)]
+fn the_asciicast_emits_a_resize_before_the_first_frame_at_new_geometry() -> termlens::Result<()> {
+    let mut t = emit(
+        Terminal::builder(),
+        &[
+            "READY",
+            "--wait",
+            "--raw",
+            r"\e[?2026hFIRST\e[?2026l",
+            "--wait",
+            "--raw",
+            r"\e[?2026hSECOND\e[?2026l",
+            "--wait",
+        ],
+    )?;
+    t.wait_until(|s| s.contains("READY"))?;
+    let recorder = t.record();
+    t.send(Key::Enter)?;
+    t.wait_frame(|s| s.contains("FIRST"))?;
+    t.resize(60, 8)?;
+    t.send(Key::Enter)?;
+    t.wait_frame(|s| s.contains("SECOND"))?;
+    let recording = recorder.stop()?;
+
+    assert_eq!(
+        recording
+            .frames()
+            .iter()
+            .map(|(_, frame)| frame.size())
+            .collect::<Vec<_>>(),
+        [(40, 6), (60, 8)]
+    );
+    let events: Vec<serde_json::Value> = recording
+        .to_asciicast()
+        .lines()
+        .skip(1)
+        .map(|line| serde_json::from_str(line).expect("an asciicast event"))
+        .collect();
+    assert_eq!(events.len(), 3);
+    assert_eq!(events[0][1], "o");
+    assert_eq!(events[1][1], "r");
+    assert_eq!(events[1][2], "60x8");
+    assert_eq!(events[2][1], "o");
+
+    t.send(Key::Enter)?;
+    assert!(t.wait_exit()?.success());
+    Ok(())
+}
+
 /// The exported event must *redraw* the frame it came from — every row, the
 /// bottom one included (#295). `to_ansi` ends every row with a newline, and
 /// the one after the last row scrolled the whole picture up by one when the

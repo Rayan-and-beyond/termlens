@@ -846,7 +846,17 @@ impl Recording {
             let _ = write!(out, ", \"title\": {}", json_string(&self.title));
         }
         out.push_str(", \"env\": {\"TERM\": \"xterm-256color\"}}\n");
+        let mut previous_size = self.frames.first().map(|(_, frame)| frame.size());
         for (at, frame) in &self.frames {
+            let size = frame.size();
+            if previous_size.is_some_and(|previous| previous != size) {
+                let (cols, rows) = size;
+                out.push_str(&format!(
+                    "[{:.6}, \"r\", \"{cols}x{rows}\"]\n",
+                    at.as_secs_f64()
+                ));
+            }
+            previous_size = Some(size);
             let mut data = String::from("\x1b[H\x1b[2J");
             // `to_ansi` ends every row with a newline, the bottom one
             // included — right for a file or a paste into a terminal, wrong

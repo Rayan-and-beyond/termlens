@@ -17,6 +17,10 @@ reads that marker.
 
 ## [Unreleased]
 
+### Fixed
+
+- Asciicast exports now emit v2 resize events when a recording changes terminal geometry, so later frames replay at their recorded size (#398).
+
 ## [0.11.1] - 2026-09-16
 
 ### Added
