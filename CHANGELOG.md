@@ -17,6 +17,10 @@ reads that marker.
 
 ## [Unreleased]
 
+### Fixed
+
+- Kitty file, temporary-file, and shared-memory graphics transmissions are exposed through `GraphicsPayload::transmission()` and reported unsupported by `decode()` instead of treating their path/name payload as pixels (#402).
+
 ## [0.11.1] - 2026-09-16
 
 ### Added

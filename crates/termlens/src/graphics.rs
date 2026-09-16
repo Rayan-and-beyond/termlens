@@ -162,6 +162,7 @@ pub struct GraphicsPayload {
     action: GraphicsAction,
     format: GraphicsFormat,
     compressed: bool,
+    transmission: Option<u8>,
     id: Option<u32>,
     size: Option<(u32, u32)>,
     cells: Option<(u16, u16)>,
@@ -190,6 +191,9 @@ impl fmt::Debug for GraphicsPayload {
             write!(f, " {cols}x{rows}cells")?;
         }
         write!(f, " at {:?}", self.at)?;
+        if let Some(transmission) = self.transmission {
+            write!(f, " t={}", char::from(transmission))?;
+        }
         if let Some(id) = self.id {
             write!(f, " i={id}")?;
         }
@@ -230,6 +234,12 @@ impl GraphicsPayload {
     #[must_use]
     pub fn compressed(&self) -> bool {
         self.compressed
+    }
+
+    /// The kitty transmission medium (`t=`), if the application named one.
+    #[must_use]
+    pub fn transmission(&self) -> Option<u8> {
+        self.transmission
     }
 
     /// The image id the application gave it (kitty `i=`), if any.
@@ -328,6 +338,14 @@ impl GraphicsPayload {
 
     #[cfg(feature = "decode")]
     fn decode_kitty(&self, data: &[u8]) -> Result<Bitmap, DecodeError> {
+        if let Some(reason) = match self.transmission {
+            Some(b'f') => Some("kitty t=f (file transmission)"),
+            Some(b't') => Some("kitty t=t (temporary-file transmission)"),
+            Some(b's') => Some("kitty t=s (shared-memory transmission)"),
+            _ => None,
+        } {
+            return Err(DecodeError::Unsupported(reason));
+        }
         let (channels, has_alpha) = match self.format {
             GraphicsFormat::Rgb => (3usize, false),
             GraphicsFormat::Rgba => (4usize, true),
@@ -905,6 +923,7 @@ pub(crate) struct GraphicsBuilder {
     action: GraphicsAction,
     format: GraphicsFormat,
     compressed: bool,
+    transmission: Option<u8>,
     id: Option<u32>,
     size: Option<(u32, u32)>,
     cells: Option<(u16, u16)>,
@@ -923,6 +942,7 @@ impl Default for GraphicsBuilder {
             action: GraphicsAction::Other,
             format: GraphicsFormat::Rgba,
             compressed: false,
+            transmission: None,
             id: None,
             size: None,
             cells: None,
@@ -963,6 +983,7 @@ impl GraphicsBuilder {
                 Some(other) => GraphicsFormat::Other(other),
             };
             self.compressed = key(control, b"o") == Some(b"z");
+            self.transmission = key(control, b"t").and_then(|value| value.first().copied());
             self.id = number(control, b"i");
             self.size = match (number(control, b"s"), number(control, b"v")) {
                 (Some(width), Some(height)) => Some((width, height)),
@@ -1021,6 +1042,7 @@ impl GraphicsBuilder {
             action: self.action,
             format: self.format,
             compressed: self.compressed,
+            transmission: self.transmission,
             id: self.id,
             size,
             cells: self.cells,
@@ -1097,6 +1119,7 @@ mod tests {
         assert_eq!(payload.action(), GraphicsAction::TransmitAndPlace);
         assert_eq!(payload.format(), GraphicsFormat::Rgba);
         assert!(payload.compressed());
+        assert_eq!(payload.transmission(), None);
         assert_eq!(payload.id(), Some(7));
         assert_eq!(payload.size(), Some((954, 133)));
         assert_eq!(payload.cells(), Some((106, 7)));
@@ -1285,6 +1308,25 @@ mod tests {
         let bitmap = payload.decode().expect("decodes");
         assert_eq!((bitmap.width(), bitmap.height()), (16, 16));
         assert_eq!(bitmap.pixel(15, 15), Some([0x40, 0x40, 0x40, 0x40]));
+    }
+
+    #[cfg(feature = "decode")]
+    #[test]
+    fn non_direct_kitty_transmissions_are_not_decoded_as_pixels() {
+        let data = base64(&[1, 2, 3, 4]);
+        for medium in [b'f', b't', b's'] {
+            let control = format!("a=T,t={},f=32,s=1,v=1", char::from(medium));
+            let payload = kitty_payload(control.as_bytes(), data.as_bytes());
+            assert_eq!(payload.transmission(), Some(medium));
+            assert!(matches!(payload.decode(), Err(DecodeError::Unsupported(_))));
+        }
+
+        let direct = kitty_payload(b"a=T,t=d,f=32,s=1,v=1", data.as_bytes());
+        assert_eq!(direct.transmission(), Some(b'd'));
+        assert_eq!(
+            direct.decode().expect("direct data decodes").pixel(0, 0),
+            Some([1, 2, 3, 4])
+        );
     }
 
     #[cfg(feature = "decode")]
