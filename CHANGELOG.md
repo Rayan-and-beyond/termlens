@@ -19,7 +19,23 @@ reads that marker.
 
 ### Fixed
 
-- Kitty file, temporary-file, and shared-memory graphics transmissions are exposed through `GraphicsPayload::transmission()` and reported unsupported by `decode()` instead of treating their path/name payload as pixels (#402).
+- A kitty `t=f`, `t=t` or `t=s` transmission is refused by `decode()`
+  instead of having its body decoded as pixels (#402). The body of those
+  three is a path or a shared-memory name, not image data, so a small
+  declared size returned an `Ok` bitmap holding the ASCII of `/tmp`, and a
+  larger one blamed a short payload. `kitty +kitten icat` uses temp-file
+  and shared-memory transmission by default, so this was the common path
+  for a real image, not a synthetic one. An unknown medium is refused for
+  the same reason. `GraphicsPayload::transmission()` reports which one it
+  was, as a new `GraphicsTransmission`; termlens still never opens the
+  path or the mapping.
+
+- A kitty transmission declaring a width or a height of zero is refused as
+  malformed instead of decoding to an empty bitmap (#404). `s=` and `v=`
+  are the pixel dimensions of a picture, so a zero contradicts the
+  protocol; returning `Ok` of a 0x0 bitmap made `decode()?` succeed and
+  the assertion after it silently see nothing. Sixel already declined
+  this by falling back to the painted extent.
 
 ## [0.11.1] - 2026-09-16
 
