@@ -13,8 +13,8 @@ doc="${2:-CONTRIBUTING.md}"
 # the zizmor retry, required-green's jq) and are not something a contributor
 # types.
 ci_cmds="$(sed -n -E 's/^[[:space:]]*- run: (cargo |\.github\/scripts\/|tools\/)(.*)$/\1\2/p' "$ci" | sed -E 's/[[:space:]]+/ /g')"
-cargo_count="$(grep -c '^cargo ' <<<"$ci_cmds")"
-script_count="$(grep -Ec '^(\.github/scripts/|tools/)' <<<"$ci_cmds")"
+cargo_count="$(grep -c '^cargo ' <<<"$ci_cmds" || true)"
+script_count="$(grep -Ec '^(\.github/scripts/|tools/)' <<<"$ci_cmds" || true)"
 
 # CONTRIBUTING §1: every ```sh block between "## 1." and "## 2.", comments
 # stripped, the RUSTDOCFLAGS prefix and a `+toolchain` selector removed —
