@@ -17,9 +17,35 @@ reads that marker.
 
 ## [Unreleased]
 
+### Changed
+
+- The published crate no longer ships the integration suite (#385). 86 of
+  its 109 files were tests that cannot run from the tarball at all: they
+  spawn fixture binaries built from workspace siblings a package cannot
+  carry, so inside the unpacked crate that build fails outright. The
+  frozen `tests/compat/` corpus went with them — it is release
+  engineering evidence about this repository, not material a consumer can
+  use. `src/`, `examples/inspect.rs` and the README are unchanged, and
+  the doctests still run.
+
 ### Fixed
 
-- `Screen::unsupported()` now reports unimplemented xterm title-stack operations instead of silently treating every `CSI … t` sequence as handled (#393).
+- A kitty transmission declaring a width or a height of zero is refused as
+  malformed instead of decoding to an empty bitmap (#404). `s=` and `v=`
+  are the pixel dimensions of a picture, so a zero contradicts the
+  protocol; returning `Ok` of a 0x0 bitmap made `decode()?` succeed and
+  the assertion after it silently see nothing. Sixel already declined
+  this by falling back to the painted extent.
+
+
+- `Screen::unsupported()` reports the xterm title-stack operations
+  `CSI 22 t` and `CSI 23 t`, which were silently dropped (#393). The whole
+  `CSI … t` family was exempt from the record on the grounds that the
+  responder handles it, but the responder only answers the three size
+  reports and names five more in a timeout; push and pop are honoured by
+  nobody. A program that brackets its run with them left `Screen::title()`
+  reporting the pushed-away title and `unsupported()` empty — the pairing
+  the accessor exists to prevent.
 
 ## [0.11.1] - 2026-09-16
 
