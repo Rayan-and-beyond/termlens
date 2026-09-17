@@ -150,6 +150,63 @@ impl fmt::Display for GraphicsFormat {
     }
 }
 
+/// Where a kitty transmission says its bytes are (`t=`).
+///
+/// Only [`Direct`](Self::Direct) carries the image in the escape itself.
+/// The rest name something outside the stream — a path, or a shared-memory
+/// object — so the payload body is a *name*, not pixels, and
+/// `GraphicsPayload::decode` refuses it rather than decoding the name
+/// (#402). termlens never opens the path or the mapping: what an
+/// application under test points at is not something a harness should read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum GraphicsTransmission {
+    /// kitty `t=d`, and the default when a transmission names no medium:
+    /// the bytes are in the escape.
+    Direct,
+    /// kitty `t=f`: the body is the path of a file to read.
+    File,
+    /// kitty `t=t`: the body is the path of a temporary file, to be
+    /// deleted after reading.
+    TempFile,
+    /// kitty `t=s`: the body is the name of a POSIX shared-memory object.
+    SharedMemory,
+    /// A kitty `t=` value this crate does not know. Decoding refuses it:
+    /// an unknown medium is exactly as likely to be indirect as not, and
+    /// guessing is how the body of one got decoded as pixels to begin with.
+    Other(u8),
+}
+
+impl GraphicsTransmission {
+    /// The byte the application wrote.
+    #[must_use]
+    fn code(self) -> u8 {
+        match self {
+            GraphicsTransmission::Direct => b'd',
+            GraphicsTransmission::File => b'f',
+            GraphicsTransmission::TempFile => b't',
+            GraphicsTransmission::SharedMemory => b's',
+            GraphicsTransmission::Other(value) => value,
+        }
+    }
+
+    fn from_code(code: u8) -> Self {
+        match code {
+            b'd' => GraphicsTransmission::Direct,
+            b'f' => GraphicsTransmission::File,
+            b't' => GraphicsTransmission::TempFile,
+            b's' => GraphicsTransmission::SharedMemory,
+            other => GraphicsTransmission::Other(other),
+        }
+    }
+}
+
+impl fmt::Display for GraphicsTransmission {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "t={}", char::from(self.code()))
+    }
+}
+
 /// One inline image an application transmitted, as observed on the wire.
 ///
 /// Read the list from [`GraphicsSeen::payloads`]. Every field is a fact the
@@ -162,6 +219,7 @@ pub struct GraphicsPayload {
     action: GraphicsAction,
     format: GraphicsFormat,
     compressed: bool,
+    transmission: Option<GraphicsTransmission>,
     id: Option<u32>,
     size: Option<(u32, u32)>,
     cells: Option<(u16, u16)>,
@@ -190,6 +248,9 @@ impl fmt::Debug for GraphicsPayload {
             write!(f, " {cols}x{rows}cells")?;
         }
         write!(f, " at {:?}", self.at)?;
+        if let Some(transmission) = self.transmission {
+            write!(f, " {transmission}")?;
+        }
         if let Some(id) = self.id {
             write!(f, " i={id}")?;
         }
@@ -230,6 +291,14 @@ impl GraphicsPayload {
     #[must_use]
     pub fn compressed(&self) -> bool {
         self.compressed
+    }
+
+    /// Where the application said this transmission's bytes are (kitty
+    /// `t=`), or `None` when it named no medium — which kitty defines as
+    /// [`Direct`](GraphicsTransmission::Direct).
+    #[must_use]
+    pub fn transmission(&self) -> Option<GraphicsTransmission> {
+        self.transmission
     }
 
     /// The image id the application gave it (kitty `i=`), if any.
@@ -328,6 +397,22 @@ impl GraphicsPayload {
 
     #[cfg(feature = "decode")]
     fn decode_kitty(&self, data: &[u8]) -> Result<Bitmap, DecodeError> {
+        // Only a direct transmission carries pixels. The others name a
+        // path or a shared-memory object, so decoding the body decodes the
+        // *name* — which is how a payload once reported the ASCII of `/tmp`
+        // as an image (#402). An unknown medium is refused for the same
+        // reason `f=` does: guessing is what produced that bug.
+        if let Some(reason) = match self.transmission {
+            None | Some(GraphicsTransmission::Direct) => None,
+            Some(GraphicsTransmission::File) => Some("kitty t=f (file transmission)"),
+            Some(GraphicsTransmission::TempFile) => Some("kitty t=t (temporary-file transmission)"),
+            Some(GraphicsTransmission::SharedMemory) => {
+                Some("kitty t=s (shared-memory transmission)")
+            }
+            Some(GraphicsTransmission::Other(_)) => Some("an unknown kitty t= transmission"),
+        } {
+            return Err(DecodeError::Unsupported(reason));
+        }
         let (channels, has_alpha) = match self.format {
             GraphicsFormat::Rgb => (3usize, false),
             GraphicsFormat::Rgba => (4usize, true),
@@ -345,6 +430,11 @@ impl GraphicsPayload {
         let (width, height) = self.size.ok_or(DecodeError::Malformed(
             "a kitty transmission without s= and v=",
         ))?;
+        if width == 0 || height == 0 {
+            return Err(DecodeError::Malformed(
+                "a kitty transmission declaring a zero dimension",
+            ));
+        }
         // The declared size is computed *before* the payload is touched,
         // because it is what bounds the inflate below. The other way round —
         // as this was — leaves `decompress_to_vec_zlib` free to allocate
@@ -905,6 +995,7 @@ pub(crate) struct GraphicsBuilder {
     action: GraphicsAction,
     format: GraphicsFormat,
     compressed: bool,
+    transmission: Option<GraphicsTransmission>,
     id: Option<u32>,
     size: Option<(u32, u32)>,
     cells: Option<(u16, u16)>,
@@ -923,6 +1014,7 @@ impl Default for GraphicsBuilder {
             action: GraphicsAction::Other,
             format: GraphicsFormat::Rgba,
             compressed: false,
+            transmission: None,
             id: None,
             size: None,
             cells: None,
@@ -963,6 +1055,9 @@ impl GraphicsBuilder {
                 Some(other) => GraphicsFormat::Other(other),
             };
             self.compressed = key(control, b"o") == Some(b"z");
+            self.transmission = key(control, b"t")
+                .and_then(|value| value.first().copied())
+                .map(GraphicsTransmission::from_code);
             self.id = number(control, b"i");
             self.size = match (number(control, b"s"), number(control, b"v")) {
                 (Some(width), Some(height)) => Some((width, height)),
@@ -1021,6 +1116,7 @@ impl GraphicsBuilder {
             action: self.action,
             format: self.format,
             compressed: self.compressed,
+            transmission: self.transmission,
             id: self.id,
             size,
             cells: self.cells,
@@ -1097,6 +1193,7 @@ mod tests {
         assert_eq!(payload.action(), GraphicsAction::TransmitAndPlace);
         assert_eq!(payload.format(), GraphicsFormat::Rgba);
         assert!(payload.compressed());
+        assert_eq!(payload.transmission(), None);
         assert_eq!(payload.id(), Some(7));
         assert_eq!(payload.size(), Some((954, 133)));
         assert_eq!(payload.cells(), Some((106, 7)));
@@ -1285,6 +1382,54 @@ mod tests {
         let bitmap = payload.decode().expect("decodes");
         assert_eq!((bitmap.width(), bitmap.height()), (16, 16));
         assert_eq!(bitmap.pixel(15, 15), Some([0x40, 0x40, 0x40, 0x40]));
+    }
+
+    /// A declared dimension of zero contradicts the protocol — `s=` and `v=`
+    /// are the pixel dimensions of a picture — so it is a refusal with a
+    /// reason, never an `Ok` of an empty bitmap that reads as "the image was
+    /// empty" (#404). Sixel already declines this by falling back to the
+    /// painted extent.
+    #[cfg(feature = "decode")]
+    #[test]
+    fn kitty_zero_dimensions_are_malformed() {
+        for control in [
+            b"a=T,f=32,s=0,v=0".as_slice(),
+            b"a=T,f=32,s=8,v=0".as_slice(),
+            b"a=T,f=32,s=0,v=8".as_slice(),
+        ] {
+            assert!(
+                matches!(
+                    kitty_payload(control, b"").decode(),
+                    Err(DecodeError::Malformed(
+                        "a kitty transmission declaring a zero dimension"
+                    ))
+                ),
+                "a kitty transmission with a zero dimension was accepted: {}",
+                String::from_utf8_lossy(control)
+            );
+        }
+    }
+
+    #[cfg(feature = "decode")]
+    #[test]
+    fn non_direct_kitty_transmissions_are_not_decoded_as_pixels() {
+        let data = base64(&[1, 2, 3, 4]);
+        for medium in *b"fts" {
+            let control = format!("a=T,t={},f=32,s=1,v=1", char::from(medium));
+            let payload = kitty_payload(control.as_bytes(), data.as_bytes());
+            assert_eq!(
+                payload.transmission(),
+                Some(GraphicsTransmission::from_code(medium))
+            );
+            assert!(matches!(payload.decode(), Err(DecodeError::Unsupported(_))));
+        }
+
+        let direct = kitty_payload(b"a=T,t=d,f=32,s=1,v=1", data.as_bytes());
+        assert_eq!(direct.transmission(), Some(GraphicsTransmission::Direct));
+        assert_eq!(
+            direct.decode().expect("direct data decodes").pixel(0, 0),
+            Some([1, 2, 3, 4])
+        );
     }
 
     #[cfg(feature = "decode")]
@@ -1481,6 +1626,74 @@ mod tests {
         assert!(rendered.contains("954x133px"), "{rendered}");
         assert!(rendered.contains("106x7cells"), "{rendered}");
         assert!(!rendered.contains("AAAA"), "the data must not be in it");
+    }
+
+    /// The `Display` strings are the crate's contract with its callers, and the
+    /// `f={value}` arm of `GraphicsFormat` had no coverage at all — a value
+    /// other than 24/32/100 is the only input that reaches it.
+    #[test]
+    fn protocols_and_formats_render_as_their_names() {
+        assert_eq!(GraphicsProtocol::Kitty.to_string(), "kitty");
+        assert_eq!(GraphicsProtocol::Sixel.to_string(), "sixel");
+        assert_eq!(GraphicsFormat::Rgb.to_string(), "rgb");
+        assert_eq!(GraphicsFormat::Rgba.to_string(), "rgba");
+        assert_eq!(GraphicsFormat::Png.to_string(), "png");
+        assert_eq!(GraphicsFormat::Sixel.to_string(), "sixel");
+        assert_eq!(GraphicsFormat::Other(99).to_string(), "f=99");
+    }
+
+    /// An unrecognized `f=` value must survive the parser as `Other`, never be
+    /// guessed into a named format — driven through the real builder rather
+    /// than hand-constructed, so a broken `f=` parse fails here.
+    #[test]
+    fn an_unknown_kitty_format_survives_named_and_rendered() {
+        let payload = kitty_payload(b"a=T,f=99,s=1,v=1", b"AAAA");
+        assert_eq!(payload.format(), GraphicsFormat::Other(99));
+        assert_eq!(payload.format().to_string(), "f=99");
+    }
+
+    /// These are the strings a user actually reads when a decode is refused,
+    /// so their exact wording is load-bearing (#181); the `assert_error`
+    /// function pins the `std::error::Error` impl at compile time.
+    #[cfg(feature = "decode")]
+    #[test]
+    fn every_decode_error_names_its_reason_and_is_an_error() {
+        fn assert_error<E: std::error::Error>() {}
+        assert_error::<DecodeError>();
+
+        assert_eq!(
+            DecodeError::NotCaptured.to_string(),
+            "the payload was counted but not kept — raise TerminalBuilder::capture_graphics"
+        );
+        assert_eq!(
+            DecodeError::NoImage(GraphicsAction::Delete).to_string(),
+            "a Delete action carries no image data"
+        );
+        assert_eq!(
+            DecodeError::Unsupported("kitty f=100 (PNG)").to_string(),
+            "termlens does not decode kitty f=100 (PNG)"
+        );
+        assert_eq!(
+            DecodeError::Malformed("bad base64").to_string(),
+            "the payload carries bad base64"
+        );
+        assert_eq!(
+            DecodeError::TooLarge("a sixel wider than 4096 pixels").to_string(),
+            "termlens will not decode a sixel wider than 4096 pixels"
+        );
+    }
+
+    /// The terse form is deliberate — a `Screen` is embedded in every error,
+    /// and a derived `Debug` would dump the pixels into the log. This test is
+    /// the fence against a `#[derive(Debug)]` being restored over the manual impl.
+    #[cfg(feature = "decode")]
+    #[test]
+    fn a_bitmap_debugs_as_dimensions_only() {
+        let raw = [0x40u8; 8];
+        let bitmap = kitty_payload(b"a=T,f=32,s=2,v=1", base64(&raw).as_bytes())
+            .decode()
+            .expect("decodes");
+        assert_eq!(format!("{bitmap:?}"), "Bitmap 2x1");
     }
 
     /// The encoder side of what `decode_base64` undoes — tests only.
