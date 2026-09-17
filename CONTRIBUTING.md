@@ -62,7 +62,7 @@ RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --all-features
 .github/scripts/check-report-pin.sh                       # the three report@v refs agree with the workspace version
 .github/scripts/check-skill-snippets.sh                   # every Rust block in SKILL.md still compiles
 cargo deny check                          # cargo install cargo-deny
-pipx run zizmor==1.29.0 --persona=pedantic .github/workflows/   # workflow audit; needs GH_TOKEN for the online checks
+pipx run zizmor==1.29.0 --persona=pedantic .github/   # workflow and action audit; needs GH_TOKEN for the online checks
 cargo +1.85 check --workspace --exclude ratatui-app --locked --all-targets    # the MSRV: `rust-version` in Cargo.toml (the ratatui fixture needs 1.88)
 cargo +1.85 check -p termlens --all-features --all-targets --locked           # …and every optional feature at the same floor
 cargo +1.85 check -p termlens --no-default-features --all-targets --locked
