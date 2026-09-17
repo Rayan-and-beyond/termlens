@@ -105,6 +105,14 @@ reads that marker.
   the last column; no file in the compatibility corpus holds one. The
   writers that emit it are not touched here.
 
+- A hard reset (`ESC c`, RIS) no longer drops scrollback rows. The reset
+  rebuilt the backend's screen and emptied its history while the
+  high-water mark of rows already captured survived, so rows scrolling
+  after it were compared against a stale mark and skipped — and which
+  rows were lost depended on how the PTY chunked the writes (#391). Rows
+  that scrolled before the reset are now taken before the reset reaches
+  the screen, and the mark starts over afterwards.
+
 ## [0.11.1] - 2026-09-16
 
 ### Added
