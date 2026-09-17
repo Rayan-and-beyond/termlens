@@ -115,6 +115,14 @@ reads that marker.
 
 - XTVERSION probes are named in unanswered-query timeout diagnostics (#403).
 
+- The 222-coordinate ceiling applies only to the legacy mouse encoding
+  (#395). `CSI ?1005h` exists precisely so a coordinate above 222 can be
+  sent as a UTF-8 scalar, and termlens already encoded it correctly — the
+  guard simply ran before the encoding was consulted. So a click on the
+  right half of a wide terminal was refused against an application that
+  had chosen 1005, and the refusal named an encoding the application had
+  not selected.
+
 ## [0.11.1] - 2026-09-16
 
 ### Added
