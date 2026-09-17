@@ -162,17 +162,13 @@ impl Vt100Emulator {
     /// whatever came next. `HT` it does act on, moving by its own fixed
     /// eight — which the `CHA` below then overrides, since `HT` draws
     /// nothing and only moves the cursor.
-    /// Cursor position as a real grid cell. vt100 exposes pending wrap as
-    /// `col == cols`; terminals keep the cursor on the last cell instead.
-    fn cursor_position(&self) -> (u16, u16) {
-        let screen = self.parser.screen();
-        let (row, col) = screen.cursor_position();
-        (row, col.min(screen.size().1.saturating_sub(1)))
-    }
-
     fn apply_tabs(&mut self, op: TabOp, before: &[u8], last: &[u8]) {
         self.feed_staged(before);
-        let col = self.cursor_position().1;
+        // The *raw* column, not the clamped one a snapshot reports: `HTS`
+        // at the right margin is dropped by `TabStops::set`, on purpose —
+        // clamping it would set a stop the application never asked for,
+        // and that stop outlives the wrap once the grid is widened.
+        let col = self.parser.screen().cursor_position().1;
         let target = self.tracker.tab_op(op, col);
         self.feed_staged(last);
         if let Some(target) = target {
@@ -305,6 +301,17 @@ impl Vt100Emulator {
         }
         self.captured = len;
         screen.set_scrollback(0);
+    }
+    /// The cursor as a snapshot should report it: a column pending wrap
+    /// sits one past the last cell inside the backend, and no terminal
+    /// reports a column its own width does not have (#401). Clamping here
+    /// keeps the snapshot, the cursor-position report and a graphics
+    /// placement agreeing with the grid they describe. Tab stops read the
+    /// raw column instead — see `apply_tabs`.
+    fn cursor_position(&self) -> (u16, u16) {
+        let screen = self.parser.screen();
+        let (row, col) = screen.cursor_position();
+        (row, col.min(screen.size().1.saturating_sub(1)))
     }
 }
 

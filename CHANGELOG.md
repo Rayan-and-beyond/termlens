@@ -17,9 +17,35 @@ reads that marker.
 
 ## [Unreleased]
 
+### Changed
+
+- The published crate no longer ships the integration suite (#385). 86 of
+  its 109 files were tests that cannot run from the tarball at all: they
+  spawn fixture binaries built from workspace siblings a package cannot
+  carry, so inside the unpacked crate that build fails outright. The
+  frozen `tests/compat/` corpus went with them — it is release
+  engineering evidence about this repository, not material a consumer can
+  use. `src/`, `examples/inspect.rs` and the README are unchanged, and
+  the doctests still run.
+
 ### Fixed
 
-- A cursor pending wrap at the right margin is reported on the last grid cell, keeping saved screens parseable and cursor-position replies within the terminal width (#401).
+- A kitty transmission declaring a width or a height of zero is refused as
+  malformed instead of decoding to an empty bitmap (#404). `s=` and `v=`
+  are the pixel dimensions of a picture, so a zero contradicts the
+  protocol; returning `Ok` of a 0x0 bitmap made `decode()?` succeed and
+  the assertion after it silently see nothing. Sixel already declined
+  this by falling back to the painted extent.
+
+
+- A cursor pending wrap at the right margin is reported on the last cell
+  rather than one column past it (#401). vt100 parks it at `col == cols`;
+  no real terminal reports a column its own width does not have, and the
+  snapshot format refuses one — so a program that filled its last row made
+  `termlens inspect` print a screen `render` and `diff` would not read. The
+  cursor-position report and a graphics placement at the margin were off by
+  the same column. Tab stops still read the raw column, so `HTS` at the
+  margin is dropped rather than clamped onto the last cell.
 
 ## [0.11.1] - 2026-09-16
 
