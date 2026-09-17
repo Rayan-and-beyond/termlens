@@ -842,10 +842,14 @@ impl Recording {
     }
 
     /// The recording as an [asciicast v2] document: a header line, then one
-    /// event per frame at its timestamp, each a full repaint — clear, home,
-    /// then the frame through [`Screen::to_ansi`] — which is what the format
-    /// expects and what `asciinema play` and `agg` render. termlens ships no
-    /// image encoder; this is the file those tools turn into a GIF.
+    /// output event per frame at its timestamp, each a full repaint —
+    /// clear, home, then the frame through [`Screen::to_ansi`] — which is
+    /// what the format expects and what `asciinema play` and `agg` render.
+    /// A frame whose geometry differs from the one before it is preceded
+    /// by a resize event, so a recording that spans a `resize` replays at
+    /// the size each frame was drawn at rather than the first frame's.
+    /// termlens ships no image encoder; this is the file those tools turn
+    /// into a GIF.
     ///
     /// [asciicast v2]: https://docs.asciinema.org/manual/asciicast/v2/
     #[must_use]
@@ -871,7 +875,17 @@ impl Recording {
             let _ = write!(out, ", \"title\": {}", json_string(&self.title));
         }
         out.push_str(", \"env\": {\"TERM\": \"xterm-256color\"}}\n");
+        let mut previous_size = self.frames.first().map(|(_, frame)| frame.size());
         for (at, frame) in &self.frames {
+            let size = frame.size();
+            if previous_size.is_some_and(|previous| previous != size) {
+                let (cols, rows) = size;
+                out.push_str(&format!(
+                    "[{:.6}, \"r\", \"{cols}x{rows}\"]\n",
+                    at.as_secs_f64()
+                ));
+            }
+            previous_size = Some(size);
             let mut data = String::from("\x1b[H\x1b[2J");
             // `to_ansi` ends every row with a newline, the bottom one
             // included — right for a file or a paste into a terminal, wrong
