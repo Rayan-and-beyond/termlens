@@ -817,10 +817,14 @@ impl Recording {
     }
 
     /// The recording as an [asciicast v2] document: a header line, then one
-    /// event per frame at its timestamp, each a full repaint — clear, home,
-    /// then the frame through [`Screen::to_ansi`] — which is what the format
-    /// expects and what `asciinema play` and `agg` render. termlens ships no
-    /// image encoder; this is the file those tools turn into a GIF.
+    /// output event per frame at its timestamp, each a full repaint —
+    /// clear, home, then the frame through [`Screen::to_ansi`] — which is
+    /// what the format expects and what `asciinema play` and `agg` render.
+    /// A frame whose geometry differs from the one before it is preceded
+    /// by a resize event, so a recording that spans a `resize` replays at
+    /// the size each frame was drawn at rather than the first frame's.
+    /// termlens ships no image encoder; this is the file those tools turn
+    /// into a GIF.
     ///
     /// [asciicast v2]: https://docs.asciinema.org/manual/asciicast/v2/
     #[must_use]

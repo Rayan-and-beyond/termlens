@@ -57,7 +57,14 @@ reads that marker.
   printed to; a combining mark still joins its cell as before (#376).
 
 
-- Asciicast exports now emit v2 resize events when a recording changes terminal geometry, so later frames replay at their recorded size (#398).
+- An asciicast export emits a v2 resize event whenever a frame's geometry
+  differs from the one before it (#398). The header took its width and
+  height from the first frame and nothing ever corrected them, so a
+  recording spanning a `resize` replayed every later frame into a player
+  told the terminal was still the original size — `asciinema play` and
+  `agg` wrapped and clipped it. A responsive-layout bug is exactly the
+  kind you attach a recording of, so it was the one recording that
+  rendered wrong.
 
 ## [0.11.1] - 2026-09-16
 
