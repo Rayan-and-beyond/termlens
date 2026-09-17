@@ -113,6 +113,8 @@ reads that marker.
   that scrolled before the reset are now taken before the reset reaches
   the screen, and the mark starts over afterwards.
 
+- XTVERSION probes are named in unanswered-query timeout diagnostics (#403).
+
 ## [0.11.1] - 2026-09-16
 
 ### Added

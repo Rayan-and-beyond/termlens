@@ -400,6 +400,7 @@ fn decrqss_and_palette_queries_are_named() {
     for (label, query, shape) in [
         ("DECRQSS", r"\eP$qm\e\\", "^[P$qm"),
         ("OSC 4", r"\e]4;1;?\a", "^[]4;1;?"),
+        ("XTVERSION", r"\e[>q", "^[[>q"),
     ] {
         let mut t = emit(
             Duration::from_millis(400),
