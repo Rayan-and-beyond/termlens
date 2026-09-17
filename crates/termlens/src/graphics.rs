@@ -155,7 +155,7 @@ impl fmt::Display for GraphicsFormat {
 /// Only [`Direct`](Self::Direct) carries the image in the escape itself.
 /// The rest name something outside the stream — a path, or a shared-memory
 /// object — so the payload body is a *name*, not pixels, and
-/// [`GraphicsPayload::decode`] refuses it rather than decoding the name
+/// `GraphicsPayload::decode` refuses it rather than decoding the name
 /// (#402). termlens never opens the path or the mapping: what an
 /// application under test points at is not something a harness should read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
