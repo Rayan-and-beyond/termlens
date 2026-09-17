@@ -86,6 +86,15 @@ reads that marker.
   the glyph's colour so a dim blink keeps its dim and the background keeps
   painting.
 
+- A cursor pending wrap at the right margin is reported on the last cell
+  rather than one column past it (#401). vt100 parks it at `col == cols`;
+  no real terminal reports a column its own width does not have, and the
+  snapshot format refuses one — so a program that filled its last row made
+  `termlens inspect` print a screen `render` and `diff` would not read. The
+  cursor-position report and a graphics placement at the margin were off by
+  the same column. Tab stops still read the raw column, so `HTS` at the
+  margin is dropped rather than clamped onto the last cell.
+
 ## [0.11.1] - 2026-09-16
 
 ### Added
