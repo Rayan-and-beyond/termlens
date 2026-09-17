@@ -174,7 +174,14 @@ impl Callbacks for Unhandled {
         let handled = match (prefix, intermediate, c) {
             // Tab stops, insert mode, the queries the responder answers or
             // names, and the window reports it answers or names.
-            (None, None, 'g' | 'I' | 'Z' | 'c' | 'n' | 't') => true,
+            (None, None, 'g' | 'I' | 'Z' | 'c' | 'n') => true,
+            // The window reports the responder answers (14, 16, 18) and the
+            // ones it names in a timeout (11, 13, 19, 20, 21) — `seq.rs`'s
+            // table, single-parameter like it. Everything else in the family,
+            // the title stack included, nobody honoured.
+            (None, None, 't') => {
+                params.len() == 1 && matches!(first, Some(11 | 13 | 14 | 16 | 18 | 19 | 20 | 21))
+            }
             (None, None, 'h' | 'l') => first == Some(4),
             // DECSTR, DECSCUSR, DECRQM and the mode reports.
             (None, Some(b'!'), 'p') | (None, Some(b' '), 'q') => true,
@@ -258,6 +265,21 @@ mod tests {
             shapes(b"\x1b[20h\x1b[20h\x1bD\x1b]9;hi\x07\x05\x1b[?69h"),
             ["^[[20h", "^[D", "^[]9;hi", "^E", "^[[?69h"]
         );
+    }
+
+    /// The `CSI … t` family splits three ways, and only one of them belongs
+    /// in this record: the reports the responder answers and the ones it
+    /// names in a timeout are already accounted for elsewhere, so listing
+    /// them here would report the same sequence twice. The title stack is
+    /// honoured by nobody, which is what `Screen::unsupported()` is for.
+    #[test]
+    fn title_stack_operations_are_reported_but_window_reports_are_not() {
+        assert_eq!(shapes(b"\x1b[22;0t\x1b[23;0t"), ["^[[22;0t", "^[[23;0t"]);
+        assert!(shapes(b"\x1b[14t\x1b[16t\x1b[18t").is_empty());
+        // Named in the timeout note by `seq.rs`, so not unsupported here.
+        assert!(shapes(b"\x1b[11t\x1b[13t\x1b[19t\x1b[20t\x1b[21t").is_empty());
+        // Multi-parameter forms the responder does not claim.
+        assert_eq!(shapes(b"\x1b[18;0t"), ["^[[18;0t"]);
     }
 
     #[test]

@@ -66,6 +66,15 @@ reads that marker.
   written
   form instead of inserting a synthetic `0` parameter (#394).
 
+- `Screen::unsupported()` reports the xterm title-stack operations
+  `CSI 22 t` and `CSI 23 t`, which were silently dropped (#393). The whole
+  `CSI … t` family was exempt from the record on the grounds that the
+  responder handles it, but the responder only answers the three size
+  reports and names five more in a timeout; push and pop are honoured by
+  nobody. A program that brackets its run with them left `Screen::title()`
+  reporting the pushed-away title and `unsupported()` empty — the pairing
+  the accessor exists to prevent.
+
 ## [0.11.1] - 2026-09-16
 
 ### Added
