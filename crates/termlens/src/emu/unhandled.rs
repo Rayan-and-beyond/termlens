@@ -221,12 +221,26 @@ impl Callbacks for Unhandled {
     }
 
     fn unhandled_osc(&mut self, _: &mut vt100::Screen, params: &[&[u8]]) {
-        // Links, the clipboard, the colour and palette queries: the
-        // tracker's, answered or named by the responder.
-        if matches!(
-            params.first(),
-            Some(&b"8" | &b"52" | &b"10" | &b"11" | &b"4")
-        ) {
+        // Links and the clipboard are the tracker's in every form. The
+        // colour and palette codes are the tracker's only as questions —
+        // the responder answers `10;?` and `11;?` and names `4;n;?` in a
+        // timeout — because the same codes also *set* (`10;#ff0000`,
+        // `4;1;rgb:…`), and a set is not a question: exempting the bare
+        // number dropped the set from this record too, so an application
+        // repainting its palette got the wrong colours with nothing saying
+        // why (#392).
+        // Exempt exactly what `seq.rs` claims, and in the same shapes it
+        // claims them in. `10;?` and `11;?` are answered, so only that
+        // two-operand form is the responder's: xterm also reads
+        // `10;#ff0000;?` as set-then-query, and since the responder does
+        // not answer *that*, it belongs here. A palette query is any
+        // `4;…?`, which is the rule `seq.rs` applies to it.
+        let colour_query = match params.first() {
+            Some(&b"10" | &b"11") => params.len() == 2 && params[1] == b"?",
+            Some(&b"4") => matches!(params.last(), Some(&b"?")),
+            _ => false,
+        };
+        if matches!(params.first(), Some(&b"8" | &b"52")) || colour_query {
             return;
         }
         let mut shape = String::from("^[]");
@@ -288,6 +302,41 @@ mod tests {
             shapes(b"\x1b[s\x1b[>q\x1b[?h\x1b[20h\x1b[?69h\x1b[58;5;1m"),
             ["^[[s", "^[[>q", "^[[?h", "^[[20h", "^[[?69h", "^[[58;5;1m",]
         );
+    }
+
+    /// The colour and palette codes set as well as ask. The exemption is
+    /// the responder's, not the number's: a set (`OSC 4;1;rgb:…`,
+    /// `OSC 10;#ff0000`) is honoured by nobody and lands here, while the
+    /// `?` forms stay out of the record — `10;?` and `11;?` are answered
+    /// and `4;n;?` is named in a timeout — and a code nobody tracks at all
+    /// still lands here as it always did (#392).
+    #[test]
+    fn a_colour_set_is_reported_but_its_query_is_not() {
+        for (bytes, expected) in [
+            (
+                &b"\x1b]4;1;rgb:ff/00/00\x07"[..],
+                vec!["^[]4;1;rgb:ff/00/00"],
+            ),
+            (&b"\x1b]10;#ff0000\x07"[..], vec!["^[]10;#ff0000"]),
+            (&b"\x1b]11;#00ff00\x07"[..], vec!["^[]11;#00ff00"]),
+            (&b"\x1b]10;?\x07"[..], Vec::<&str>::new()),
+            (&b"\x1b]11;?\x07"[..], Vec::<&str>::new()),
+            (&b"\x1b]4;1;?\x07"[..], Vec::<&str>::new()),
+            // A palette query is any `4;…?`, which is what `seq.rs` names.
+            (&b"\x1b]4;1;rgb:ff/00/00;2;?\x07"[..], Vec::<&str>::new()),
+            // But `10`/`11` are answered only in their two-operand form.
+            // xterm reads this one as set-then-query, and the responder
+            // does not answer it, so it belongs in the record.
+            (&b"\x1b]10;#ff0000;?\x07"[..], vec!["^[]10;#ff0000;?"]),
+            (&b"\x1b]777;x\x07"[..], vec!["^[]777;x"]),
+        ] {
+            assert_eq!(
+                shapes(bytes),
+                expected,
+                "{}",
+                String::from_utf8_lossy(bytes)
+            );
+        }
     }
 
     #[test]
