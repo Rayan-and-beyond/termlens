@@ -123,6 +123,12 @@ reads that marker.
   had chosen 1005, and the refusal named an encoding the application had
   not selected.
 
+- `Screen::logical_text()` keeps the blank rows above the first row with
+  content, so on a screen with no wraps it is `Screen::text()` exactly —
+  leading blanks and an all-blank screen included. A TUI that left its top
+  row blank had every logical line shifted up, since trailing blank rows
+  were kept and leading ones were not. (#377)
+
 ## [0.11.1] - 2026-09-16
 
 ### Added
