@@ -32,6 +32,11 @@ reads that marker.
   `=` only, so `A` is set to `b`, and a bad value keeps the diagnostic
   naming the flag the user typed.
 
+### Fixed
+
+- The attribute shadow keeps parser alignment when an SGR contains no tracked
+  attributes, avoiding debug panics and shifted blink/conceal/strike cells (#390).
+
 ### Changed
 
 - The published crate no longer ships the integration suite (#385). 86 of

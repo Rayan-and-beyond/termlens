@@ -252,8 +252,9 @@ fn normalize_colon_colours(seq: &[u8]) -> Option<Vec<u8>> {
 /// `None` means "not a plain SGR — emit it verbatim": a private prefix
 /// (`?`, `<`, `=`, `>`) or an intermediate byte makes it something else, and
 /// guessing there is how a rewriter loses bytes that shape the grid.
-/// `Some(bytes)` is what to emit, and may be empty when every parameter was
-/// dropped.
+/// `Some(bytes)` is what to emit. When every parameter is dropped, a harmless
+/// `SGR 39` keeps the structural ESC/CSI in the shadow stream without touching
+/// the bold/italic/underline carrier bits termlens reads from it.
 fn rewrite_sgr(seq: &[u8]) -> Option<Vec<u8>> {
     // `ESC [ … m`
     let params = seq.get(2..seq.len().checked_sub(1)?)?;
@@ -305,17 +306,24 @@ fn rewrite_sgr(seq: &[u8]) -> Option<Vec<u8>> {
         }
     }
 
-    let mut bytes = Vec::new();
-    if !out.is_empty() {
-        bytes.extend_from_slice(b"\x1b[");
-        for (n, param) in out.iter().enumerate() {
-            if n > 0 {
-                bytes.push(b';');
-            }
-            bytes.extend_from_slice(param.to_string().as_bytes());
-        }
-        bytes.push(b'm');
+    if out.is_empty() {
+        // Dropping the whole SGR would also drop its leading ESC. That ESC
+        // can terminate an OSC or restart a partial CSI in the primary
+        // stream, so losing it lets the two parsers diverge (#390). `39`
+        // resets only foreground colour, which is never read from the shadow;
+        // its bold/italic/underline bits remain dedicated to our carriers.
+        return Some(b"\x1b[39m".to_vec());
     }
+
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"\x1b[");
+    for (n, param) in out.iter().enumerate() {
+        if n > 0 {
+            bytes.push(b';');
+        }
+        bytes.extend_from_slice(param.to_string().as_bytes());
+    }
+    bytes.push(b'm');
     Some(bytes)
 }
 
@@ -398,15 +406,24 @@ mod tests {
     #[test]
     fn the_primarys_own_attributes_are_dropped_from_the_shadow() {
         // Otherwise a real bold would read as a blink.
-        assert_eq!(shadowed(b"\x1b[1mX"), "X");
-        assert_eq!(shadowed(b"\x1b[3mX"), "X");
-        assert_eq!(shadowed(b"\x1b[4mX"), "X");
-        assert_eq!(shadowed(b"\x1b[7;31;44mX"), "X");
+        assert_eq!(shadowed(b"\x1b[1mX"), "E[39mX");
+        assert_eq!(shadowed(b"\x1b[3mX"), "E[39mX");
+        assert_eq!(shadowed(b"\x1b[4mX"), "E[39mX");
+        assert_eq!(shadowed(b"\x1b[7;31;44mX"), "E[39mX");
         // …including the resets, which would clear a carrier.
-        assert_eq!(shadowed(b"\x1b[22m\x1b[23m\x1b[24m\x1b[27m"), "");
+        assert_eq!(
+            shadowed(b"\x1b[22m\x1b[23m\x1b[24m\x1b[27m"),
+            "E[39mE[39mE[39mE[39m"
+        );
         // Reset-all means the same in both streams.
         assert_eq!(shadowed(b"\x1b[0mX"), "E[0mX");
         assert_eq!(shadowed(b"\x1b[mX"), "E[0mX");
+    }
+
+    #[test]
+    fn a_fully_dropped_sgr_still_emits_an_escape_sequence() {
+        let rewritten = rewrite_sgr(b"\x1b[31m").expect("plain SGR");
+        assert_eq!(rewritten, b"\x1b[39m");
     }
 
     #[test]
@@ -420,15 +437,15 @@ mod tests {
         // The trap: the `5` in `38;5;196` selects palette mode, not blink.
         // Reading it as blink would paint a whole run with an attribute the
         // application never set.
-        assert_eq!(shadowed(b"\x1b[38;5;196mX"), "X");
-        assert_eq!(shadowed(b"\x1b[48;5;9mX"), "X");
-        assert_eq!(shadowed(b"\x1b[38;2;255;0;8mX"), "X"); // the 8 is blue, not conceal
+        assert_eq!(shadowed(b"\x1b[38;5;196mX"), "E[39mX");
+        assert_eq!(shadowed(b"\x1b[48;5;9mX"), "E[39mX");
+        assert_eq!(shadowed(b"\x1b[38;2;255;0;8mX"), "E[39mX"); // the 8 is blue, not conceal
         assert_eq!(shadowed(b"\x1b[38;2;0;9;0;5mX"), "E[1mX"); // …trailing 5 IS blink
                                                                // Colon form is one self-contained parameter group.
-        assert_eq!(shadowed(b"\x1b[38:5:196mX"), "X");
-        assert_eq!(shadowed(b"\x1b[38:2::255:0:9mX"), "X");
-        assert_eq!(shadowed(b"\x1b[4:3mX"), "X"); // curly underline, not strike
-                                                  // A carrier still survives alongside one.
+        assert_eq!(shadowed(b"\x1b[38:5:196mX"), "E[39mX");
+        assert_eq!(shadowed(b"\x1b[38:2::255:0:9mX"), "E[39mX");
+        assert_eq!(shadowed(b"\x1b[4:3mX"), "E[39mX"); // curly underline, not strike
+                                                       // A carrier still survives alongside one.
         assert_eq!(shadowed(b"\x1b[38;5;196;9mX"), "E[4mX");
     }
 

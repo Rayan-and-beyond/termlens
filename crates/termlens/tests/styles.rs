@@ -172,6 +172,25 @@ fn strikethrough_and_blink_appear_in_the_styled_rendering() -> termlens::Result<
 }
 
 #[test]
+fn dropped_sgrs_keep_the_shadow_parser_aligned() -> termlens::Result<()> {
+    let mut osc = emit(&["--raw", r"\e]0;title\e[31mA\e[5mB\e[0mC", "--wait"])?;
+    osc.wait_until(|s| s.contains("ABC"))?;
+    let s = osc.screen();
+    assert!(!s.cell(0, 0).expect("A").style().blink);
+    assert!(s.cell(0, 1).expect("B").style().blink);
+    assert!(!s.cell(0, 2).expect("C").style().blink);
+    osc.send(Key::Enter)?;
+    assert!(osc.wait_exit()?.success());
+
+    let mut csi = emit(&["--raw", r"\e[1;2\e[31mA", "--wait"])?;
+    csi.wait_until(|s| s.contains("A"))?;
+    assert_eq!(csi.screen().text().lines().next(), Some("A"));
+    csi.send(Key::Enter)?;
+    assert!(csi.wait_exit()?.success());
+    Ok(())
+}
+
+#[test]
 fn colon_form_rgb_colours_match_semicolon_form() -> termlens::Result<()> {
     let mut t = emit(&[
         "--raw",
