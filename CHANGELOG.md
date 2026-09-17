@@ -57,7 +57,8 @@ reads that marker.
   printed to; a combining mark still joins its cell as before (#376).
 
 
-- `Screen::unsupported()` preserves parameterless CSI sequences in their written
+- `Screen::unsupported()` preserves parameterless CSI sequences in their
+  written
   form instead of inserting a synthetic `0` parameter (#394).
 
 ## [0.11.1] - 2026-09-16
