@@ -41,6 +41,7 @@ cargo clippy -p termlens --all-targets --no-default-features -- -D warnings     
 cargo clippy -p termlens --all-targets --no-default-features --features decode -- -D warnings
 cargo clippy --workspace --all-targets -- -D warnings    # default features: what `cargo add termlens --dev` gives you
 .github/scripts/check-feature-isolation.sh              # the minimal library tree really is minimal
+.github/scripts/check-ci-gates-listed.sh                  # every single-line CI gate is documented here
 cargo test -p termlens --no-default-features
 cargo test -p termlens --no-default-features --features decode
 cargo test -p termlens --no-default-features --features regex
@@ -54,6 +55,7 @@ RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
 RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --all-features
 .github/scripts/check-candidate-statement.sh              # README, CHANGELOG and STABILITY state the candidate in the same words
 .github/scripts/check-report-pin.sh                       # the three report@v refs agree with the workspace version
+.github/scripts/check-skill-snippets.sh                   # every Rust block in SKILL.md still compiles
 cargo deny check                          # cargo install cargo-deny
 pipx run zizmor==1.29.0 --persona=pedantic .github/workflows/   # workflow audit; needs GH_TOKEN for the online checks
 cargo +1.85 check --workspace --exclude ratatui-app --locked --all-targets    # the MSRV: `rust-version` in Cargo.toml (the ratatui fixture needs 1.88)
