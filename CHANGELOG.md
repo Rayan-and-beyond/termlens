@@ -26,6 +26,12 @@ reads that marker.
   program; now the two promised saved-screen formats are interchangeable
   through the CLI, in both directions.
 
+- `termlens inspect` accepts the `--flag=value` spelling of `--size`,
+  `--timeout`, `--idle`, `--cwd` and `--env`, the form `diff --color=`
+  and `render --out=` already took (#366). `--env=A=b` splits on the first
+  `=` only, so `A` is set to `b`, and a bad value keeps the diagnostic
+  naming the flag the user typed.
+
 ### Changed
 
 - The published crate no longer ships the integration suite (#385). 86 of
