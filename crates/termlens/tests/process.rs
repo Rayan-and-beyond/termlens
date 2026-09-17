@@ -58,6 +58,28 @@ fn signal_term_exercises_the_graceful_shutdown_path() -> termlens::Result<()> {
 
 #[test]
 #[cfg(unix)]
+fn every_signal_variant_reaches_the_child() -> termlens::Result<()> {
+    for (signal, expected) in [
+        (Signal::Int, "Interrupt"),
+        (Signal::Term, "Terminated"),
+        (Signal::Hup, "Hangup"),
+        (Signal::Quit, "Quit"),
+        (Signal::Usr1, "User defined signal 1"),
+        (Signal::Usr2, "User defined signal 2"),
+        (Signal::Kill, "Killed"),
+    ] {
+        let mut t = emit(&["READY", "--wait"])?;
+        t.wait_until(|s| s.contains("READY"))?;
+        t.signal(signal)?;
+        let status = t.wait_exit()?;
+        let actual = status.signal().expect("signal should terminate child");
+        assert!(actual.contains(expected), "{signal:?}: {status}");
+    }
+    Ok(())
+}
+
+#[test]
+#[cfg(unix)]
 fn signal_after_reap_is_a_typed_error_not_a_stray_kill() {
     let mut t = emit(&["--exit", "0"]).unwrap();
     t.wait_exit().unwrap();

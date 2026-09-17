@@ -230,6 +230,74 @@ fn mouse_reports_follow_the_utf8_encoding() -> termlens::Result<()> {
     Ok(())
 }
 
+/// UTF-8 mouse mode exists so coordinates beyond the legacy 222-cell cap
+/// remain representable. Pin a real wide-terminal click on the wire.
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "the wire is read in raw mode, a tcsetattr, and ConPTY turns typed bytes into console events rather than forwarding them (#149)"
+)]
+fn utf8_mouse_reaches_past_the_legacy_limit() -> termlens::Result<()> {
+    let mut t = util::spawn_emit(
+        Terminal::builder()
+            .size(300, 24)
+            .timeout(Duration::from_secs(10)),
+        &[
+            "--raw-mode",
+            "--raw",
+            r"\e[?1000h\e[?1005h",
+            "READY",
+            "--read-hex",
+            "7",
+            " WIRE-EOF",
+            "--wait-for",
+            "QUIT",
+        ],
+    )?;
+    t.wait_until(|s| s.contains("READY"))?;
+
+    // 32 + 1 + 250 = U+011B, encoded as c4 9b in UTF-8.
+    t.click(250, 3)?;
+    t.send_str("\n\n\n\n\n\n\n")?;
+    t.wait_until(|s| s.contains("WIRE-EOF"))?;
+
+    let wire = t.screen().row_text(0);
+    assert!(
+        wire.contains("1b5b4d20c49b24"),
+        "expected ESC [ M 0x20 c4 9b 0x24 (UTF-8 column 250), got: {wire}"
+    );
+    t.send_str("QUIT\n")?;
+    assert!(t.wait_exit()?.success());
+
+    // The same coordinate remains impossible when the application selected
+    // the legacy encoding rather than UTF-8.
+    let mut legacy = util::spawn_emit(
+        Terminal::builder()
+            .size(300, 24)
+            .timeout(Duration::from_secs(10)),
+        &[
+            "--raw-mode",
+            "--raw",
+            r"\e[?1000h",
+            "READY",
+            "--wait-for",
+            "QUIT",
+        ],
+    )?;
+    legacy.wait_until(|s| s.contains("READY"))?;
+    let err = legacy
+        .click(223, 1)
+        .expect_err("legacy mouse encoding must refuse column 223");
+    assert!(
+        err.to_string()
+            .contains("unrepresentable in the legacy mouse encoding"),
+        "{err}"
+    );
+    legacy.send_str("QUIT\n")?;
+    assert!(legacy.wait_exit()?.success());
+    Ok(())
+}
+
 /// Everything the mouse API can express, captured off the wire under
 /// SGR encoding with full (any-event) tracking.
 #[test]
@@ -241,7 +309,7 @@ fn buttons_modifiers_drag_and_horizontal_wheel_reach_the_wire() -> termlens::Res
     let mut t = util::spawn_emit(
         // Wide enough that the captured wire stays on one row.
         Terminal::builder()
-            .size(200, 24)
+            .size(300, 24)
             .timeout(Duration::from_secs(10)),
         &[
             "--raw-mode",
@@ -253,17 +321,30 @@ fn buttons_modifiers_drag_and_horizontal_wheel_reach_the_wire() -> termlens::Res
             // on the path. The `|` follows the read, so waiting for it
             // waits for the wire.
             "--read-quiet",
-            "200",
+            "260",
             "|",
             "--wait",
         ],
     )?;
     t.wait_until(|s| s.contains("READY"))?;
 
-    // Right-click: SGR button 2. Ctrl-click: 0 + 16. Wheel left: 66.
-    t.click_with(termlens::MouseButton::Right, 10, 4)?;
+    // Pin every hand-written button and wheel code before exercising modifiers.
+    for (button, x) in [
+        (termlens::MouseButton::Left, 10),
+        (termlens::MouseButton::Middle, 11),
+        (termlens::MouseButton::Right, 12),
+    ] {
+        t.click_with(button, x, 4)?;
+    }
+    for (direction, x) in [
+        (termlens::Scroll::Up, 5),
+        (termlens::Scroll::Down, 6),
+        (termlens::Scroll::Left, 7),
+        (termlens::Scroll::Right, 8),
+    ] {
+        t.scroll(x, 5, direction)?;
+    }
     t.click_with(termlens::MouseButton::Left.ctrl(), 3, 1)?;
-    t.scroll(5, 5, termlens::Scroll::Left)?;
     // Ctrl-wheel-up (64 + 16) and Shift-wheel-down (65 + 4): the modifiers
     // ride on the wheel's button code exactly as they do on a click.
     t.scroll_with(termlens::Scroll::Up.ctrl(), 5, 5)?;
@@ -274,11 +355,18 @@ fn buttons_modifiers_drag_and_horizontal_wheel_reach_the_wire() -> termlens::Res
     t.wait_until(|s| s.row_text(0).contains("|"))?;
     let text = t.screen().row_text(0);
     for expected in [
-        "[<2;11;5M",
-        "[<2;11;5m", // right press + release
+        "[<0;11;5M",
+        "[<0;11;5m", // left press + release
+        "[<1;12;5M",
+        "[<1;12;5m", // middle press + release
+        "[<2;13;5M",
+        "[<2;13;5m", // right press + release
+        "[<64;6;6M", // wheel up
+        "[<65;7;6M", // wheel down
+        "[<66;8;6M", // wheel left
+        "[<67;9;6M", // wheel right
         "[<16;4;2M",
         "[<16;4;2m", // ctrl + left
-        "[<66;6;6M", // horizontal wheel
         "[<80;6;6M", // ctrl + wheel up
         "[<69;6;6M", // shift + wheel down
         // Drag (2,2) -> (6,3): press, one motion per crossed cell, release.

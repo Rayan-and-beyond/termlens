@@ -273,8 +273,10 @@ screen dump** — a CI log alone answers "what was the app showing?".
   deliberately, so a fast application cannot slip one past you between
   two waits — but a *superseded* frame no longer can, which is what makes
   `send(key); wait_frame(old_state)` fail instead of passing on stale
-  content. `resize` advances the cursor too: a frame drawn at the old
-  size is not the repaint that answers the new one.
+  content. A `resize` that changes a dimension advances the cursor too: a
+  frame drawn at the old size is not the repaint that answers the new one.
+  A resize to the size the grid already has is a no-op — no `SIGWINCH`, no
+  repaint — and leaves the cursor where it was.
 
   Honest caveat: a burst longer than the retention bound drops its
   oldest frames. A frame is one *completed* update — an End that closes a
@@ -418,9 +420,11 @@ clipped old frame still says `tasks (10)` — the wait resolves before
 the app has repainted at all. Wait for something only the
 post-SIGWINCH frame can show — content that needs the new width, a
 complete status bar on the new bottom row — or use `wait_frame` where
-the app emits synchronized updates, which is now unconditionally safe
-here: `resize` advances the frame cursor, so only a frame completed
-*after* the resize can satisfy the wait.
+the app emits synchronized updates, which is safe here when the size
+actually changes: `resize` advances the frame cursor, so only a frame
+completed *after* the resize can satisfy the wait. A resize to the size
+the grid already has is a no-op, and the frame the application last drew
+is still the current truth.
 
 ### The instant-exit caveat (macOS PTY teardown)
 
@@ -469,14 +473,19 @@ dominate the cost of every wait, and history is asserted on for its
 content.
 
 Below the retention length the history only grows, so a chunk that
-scrolled nothing costs one length check. At the length, vt100 evicts from
-the front and its length stops changing, so growth is no longer visible
-there — and there is no sound cheap substitute, since consecutive
-identical rows are ordinary output and comparing the ends of the history
-would miss real scrolls. So at the bound the window vt100 still holds is
-re-read, which is by definition the newest N rows. Measured on 50,000
-lines through an 80x24 screen: 352ms with retention off, 327ms below the
-bound (free, within noise), 639ms on the re-read path.
+scrolled nothing costs one length check. A hard reset (`RIS`, `ESC c`) is
+the exception: it rebuilds the screen and empties the history, so the feed
+is split at the reset byte — the rows that scrolled before it are captured
+while vt100 still holds them, and the capture after it sees an empty
+history, which is what re-syncs the mark (#391). At the length, vt100
+evicts from the front and its length stops changing, so growth is no
+longer visible there — and there is no sound cheap substitute, since
+consecutive identical rows are ordinary output and comparing the ends of
+the history would miss real scrolls. So at the bound the window vt100
+still holds is re-read, which is by definition the newest N rows.
+Measured on 50,000 lines through an 80x24 screen: 352ms with retention
+off, 327ms below the bound (free, within noise), 639ms on the re-read
+path.
 
 History is text unless the builder asks for styles (`scrollback_styles`),
 in which case the scrolled rows are captured as cells too and the shadow

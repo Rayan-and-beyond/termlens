@@ -712,6 +712,12 @@ impl RecordingState {
 /// A recording in progress: every complete frame from
 /// [`Terminal::record`] on, timestamped, until [`stop`](Self::stop).
 ///
+/// Dropping it also stops the recording — the deregistration `stop`
+/// performs — so a recorder abandoned by an early return or a `?` before
+/// `stop` does not leave the reader thread cloning every repaint into a
+/// buffer no one can read (#396). The frames are dropped with it; only
+/// `stop` hands back a [`Recording`].
+///
 /// Holds no borrow of the terminal, so the test drives it — `send`,
 /// `wait_frame` — while the recording runs.
 pub struct Recorder {
@@ -742,12 +748,7 @@ impl Recorder {
     /// gives. A recording is made of complete frames; sampling the grid on a
     /// timer instead would be the torn-frame problem in a new hat.
     pub fn stop(self) -> Result<Recording> {
-        let frames_seen = self.shared.mutate(|state| {
-            state
-                .recorders
-                .retain(|recorder| !Arc::ptr_eq(recorder, &self.state));
-            state.frames_seen
-        });
+        let frames_seen = self.deregister();
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if frames_seen == 0 {
             return Err(Error::Input(
@@ -764,6 +765,30 @@ impl Recorder {
             dropped: state.dropped,
             title: self.title.clone(),
         })
+    }
+
+    /// Take this recorder out of the reader thread's delivery list, and
+    /// report how many complete frames the terminal has seen in total.
+    ///
+    /// One definition for the two callers — `stop`, and `Drop` when a
+    /// recorder is abandoned before `stop` — so the two cannot deregister
+    /// by different rules.
+    fn deregister(&self) -> u64 {
+        self.shared.mutate(|state| {
+            state
+                .recorders
+                .retain(|recorder| !Arc::ptr_eq(recorder, &self.state));
+            state.frames_seen
+        })
+    }
+}
+
+impl Drop for Recorder {
+    /// Deregister as `stop` does. `stop` runs this and then drops `self`,
+    /// so a stopped recorder deregisters twice; the second call finds no
+    /// match and is a no-op.
+    fn drop(&mut self) {
+        self.deregister();
     }
 }
 
@@ -2614,7 +2639,9 @@ impl Terminal {
     /// synchronized updates, and only those. Bounded by
     /// [`record_budget`](TerminalBuilder::record_budget), oldest frames
     /// dropped and the drop reported. The recorder holds no borrow of the
-    /// terminal; drive the application as usual while it runs.
+    /// terminal; drive the application as usual while it runs, and drop it
+    /// — or [`stop`](Recorder::stop) it — when the recording is over; a
+    /// recorder that goes out of scope stops collecting.
     pub fn record(&mut self) -> Recorder {
         let state = Arc::new(Mutex::new(RecordingState {
             started: Instant::now(),
@@ -3082,7 +3109,7 @@ impl Terminal {
         if modes.mouse_encoding == MouseEncoding::Sgr {
             return Ok(mouse_sgr(button, col, row, press));
         }
-        if col > 222 || row > 222 {
+        if modes.mouse_encoding == MouseEncoding::Legacy && (col > 222 || row > 222) {
             return Err(Error::Input(format!(
                 "({col}, {row}) is unrepresentable in the legacy mouse \
                  encoding the application selected (max 222)"
@@ -3359,8 +3386,11 @@ impl Terminal {
     /// `send(key)` followed by `wait_frame(|s| s.contains(OLD_STATE))` now
     /// times out instead of passing on the superseded frame.
     ///
-    /// A [`resize`](Self::resize) also advances the cursor: a frame drawn
-    /// at the old size is not the repaint that answers the new one.
+    /// A [`resize`](Self::resize) that changes a dimension also advances the
+    /// cursor: a frame drawn at the old size is not the repaint that answers
+    /// the new one. A resize to the size the grid already has is a true
+    /// no-op — no `SIGWINCH`, no repaint — so it leaves the cursor where it
+    /// was, and the frame the application last drew is still offered.
     ///
     /// A frame is one *completed* synchronized update: an
     /// `EndSynchronizedUpdate` that closes a Begin this terminal actually
@@ -4016,9 +4046,13 @@ impl Terminal {
     /// Wait for something only the post-SIGWINCH frame can show — content
     /// that needs the new width, a complete status bar on the new bottom
     /// row — or use [`wait_frame`](Self::wait_frame) where the app emits
-    /// synchronized updates, which is unconditionally safe here: a resize
-    /// advances the frame cursor, so only a frame completed *after* it can
-    /// satisfy the wait. `docs/DESIGN.md` §2 shows the trap in full.
+    /// synchronized updates, which is safe here when the size actually
+    /// changes: the frame cursor advances, so only a frame completed
+    /// *after* it can satisfy the wait. A resize to the size the grid
+    /// already has is a no-op — `TIOCSWINSZ` raises no `SIGWINCH` for an
+    /// unchanged size, so there is no repaint and the cursor stays put —
+    /// and the frame the application last drew is the current truth.
+    /// `docs/DESIGN.md` §2 shows the trap in full.
     ///
     /// # Wait before typing
     ///
@@ -4097,6 +4131,17 @@ impl Terminal {
         // repaint that answers this resize, so it stops being offered.
         let cursor = self.shared.mutate(|state| {
             let (old_cols, old_rows) = state.peek_snapshot().size();
+            // A resize to the size the grid already has is a true no-op, and
+            // it has to be one: TIOCSWINSZ raises SIGWINCH only when a
+            // dimension actually changes, so the application is never told
+            // and never repaints — while advancing the cursor would put the
+            // frame it last drew permanently past `wait_frame`'s reach, the
+            // opposite of what the advice above promises (#397). The size is
+            // compared under the same lock that would move the cursor, so the
+            // decision and the move are one step to the reader thread.
+            if (old_cols, old_rows) == (cols, rows) {
+                return Ok(None);
+            }
             state.emu.set_size(rows, cols);
             if let Err(e) = master.resize(size) {
                 // The grid and the kernel must not disagree: undo the grid.
@@ -4104,9 +4149,11 @@ impl Terminal {
                 return Err(Error::Pty(format!("resize failed: {e}")));
             }
             state.touch();
-            Ok(state.frames_seen)
+            Ok(Some(state.frames_seen))
         })?;
-        self.frame_cursor = cursor;
+        if let Some(cursor) = cursor {
+            self.frame_cursor = cursor;
+        }
         Ok(())
     }
 }
