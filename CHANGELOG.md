@@ -62,6 +62,10 @@ reads that marker.
   row pushed the text line's `│` right of the marker line's; both now pad
   by display width (#380).
 
+- `Screen::unsupported()` preserves parameterless CSI sequences in their
+  written
+  form instead of inserting a synthetic `0` parameter (#394).
+
 - `Screen::unsupported()` reports the xterm title-stack operations
   `CSI 22 t` and `CSI 23 t`, which were silently dropped (#393). The whole
   `CSI … t` family was exempt from the record on the grounds that the
